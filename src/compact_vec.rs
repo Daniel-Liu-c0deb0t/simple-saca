@@ -30,7 +30,7 @@ impl<const BYTES: usize> CompactVec<BYTES> {
         assert!(BYTES <= 8);
 
         Self {
-            data: vec![Int([0u8; BYTES]); len + if len > 0 { 8 } else { 0 }],
+            data: vec![Int([0u8; BYTES]); len],
         }
     }
 }

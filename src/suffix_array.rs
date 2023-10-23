@@ -172,7 +172,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
         sorted
     }
 
-    pub fn idxs(&self) -> &CompactVec<BYTES> {
+    pub fn idxs(&self) -> &[Int<BYTES>] {
         &self.idxs
     }
 
