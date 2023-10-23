@@ -18,7 +18,7 @@ fn main() {
         .build_global()
         .unwrap();
 
-    let (_, seq) = read_fasta(&args.fasta);
+    let seq = read_fasta(&args.fasta);
     eprintln!("Sequence length: {}", seq.len());
     let seq = seq
         .into_iter()
@@ -38,17 +38,16 @@ fn main() {
     eprintln!("Peak memory usage (MB): {mem}");
 }
 
-fn read_fasta(path: &Path) -> (String, Vec<u8>) {
+fn read_fasta(path: &Path) -> Vec<u8> {
     let mut r = parse_fastx_file(path).unwrap();
+    let mut seq = Vec::new();
 
-    if let Some(record) = r.next() {
+    while let Some(record) = r.next() {
         let record = record.unwrap();
-        let id = std::str::from_utf8(record.id()).unwrap().to_owned();
-        let seq = record.seq().into_owned();
-        (id, seq)
-    } else {
-        panic!("Empty file!")
+        seq.extend_from_slice(&record.seq());
     }
+
+    seq
 }
 
 fn max_mem_usage_mb() -> f64 {
