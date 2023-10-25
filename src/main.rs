@@ -27,8 +27,16 @@ fn main() {
     eprintln!("Sequence length (no Ns): {}", seq.len());
 
     let start_saca = Instant::now();
-    let suffix_array = SuffixArray::<5>::new_packed::<248>(&seq, 9);
-    eprintln!("Suffix array length: {}", suffix_array.idxs().len());
+
+    if args.divsufsort {
+        use libdivsufsort_rs::divsufsort64;
+        let suffix_array = divsufsort64(&seq).unwrap();
+        eprintln!("Suffix array length: {}", suffix_array.len());
+    } else {
+        let suffix_array = SuffixArray::<5>::new_packed::<248>(&seq, 9, args.bucket_threads);
+        eprintln!("Suffix array length: {}", suffix_array.idxs().len());
+    }
+
     let elapsed_saca = start_saca.elapsed().as_secs_f64();
     eprintln!("Suffix array construction run time (s): {elapsed_saca}");
 
@@ -72,4 +80,10 @@ struct Args {
     /// Number of threads to use.
     #[arg(short, long, default_value_t = 16)]
     threads: usize,
+    /// Number of threads to use for bucketing.
+    #[arg(short, long, default_value_t = 4)]
+    bucket_threads: usize,
+    /// Run libdivsufsort instead.
+    #[arg(long)]
+    divsufsort: bool,
 }
