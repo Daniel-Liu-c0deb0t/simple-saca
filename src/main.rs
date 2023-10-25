@@ -33,7 +33,13 @@ fn main() {
         let suffix_array = divsufsort64(&seq).unwrap();
         eprintln!("Suffix array length: {}", suffix_array.len());
     } else {
-        let suffix_array = SuffixArray::<5>::new_packed::<248>(&seq, args.k, args.bucket_threads);
+        let suffix_array = match args.ctx {
+            124 => SuffixArray::<5>::new_packed::<124>(&seq, args.k, args.bucket_threads),
+            248 => SuffixArray::<5>::new_packed::<248>(&seq, args.k, args.bucket_threads),
+            496 => SuffixArray::<5>::new_packed::<496>(&seq, args.k, args.bucket_threads),
+            992 => SuffixArray::<5>::new_packed::<992>(&seq, args.k, args.bucket_threads),
+            _ => panic!("Context length of {} is not supported!", args.ctx),
+        };
         eprintln!("Suffix array length: {}", suffix_array.idxs().len());
     }
 
@@ -86,7 +92,12 @@ struct Args {
     /// Number of base pairs to use for bucketing.
     #[arg(short, long, default_value_t = 10)]
     k: usize,
-    /// Run libdivsufsort instead.
+    /// Number of base pairs of context to use for sorting.
+    ///
+    /// Supported multiples of 124: 124, 248, 496, 992
+    #[arg(short, long, default_value_t = 248)]
+    ctx: usize,
+    /// Run 64-bit libdivsufsort instead.
     #[arg(long)]
     divsufsort: bool,
 }

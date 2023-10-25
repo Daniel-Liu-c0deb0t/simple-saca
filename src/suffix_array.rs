@@ -17,8 +17,8 @@ pub struct SuffixArray<const BYTES: usize> {
 }
 
 impl<const BYTES: usize> SuffixArray<BYTES> {
-    pub fn new_packed<const CTX: usize>(bytes: &[u8], k: usize, count_threads: usize) -> Self {
-        let idxs = unsafe { Self::sort_packed::<CTX>(bytes, k, count_threads) };
+    pub fn new_packed<const CTX: usize>(bytes: &[u8], k: usize, bucket_threads: usize) -> Self {
+        let idxs = unsafe { Self::sort_packed::<CTX>(bytes, k, bucket_threads) };
 
         Self { idxs, k, ctx: CTX }
     }
@@ -27,27 +27,27 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
     unsafe fn sort_packed<const CTX: usize>(
         bytes: &[u8],
         k: usize,
-        count_threads: usize,
+        bucket_threads: usize,
     ) -> CompactVec<BYTES> {
-        let start = Instant::now();
         let k_bits = k * 2;
-        let s = Instant::now();
-        let packed = RevPacked::new(bytes);
-        let e = s.elapsed().as_secs_f64();
-        eprintln!("Packing run time (s): {e}");
-        let len_no_ctx = bytes.len() - CTX;
         let mask = (1u32 << k_bits) - 1;
-        let chunk_size = len_no_ctx / count_threads;
+        let len_no_ctx = bytes.len() - CTX;
+        let chunk_size = len_no_ctx / bucket_threads;
 
-        let mut thread_counts = vec![CompactVec::<BYTES>::new(1 << k_bits); count_threads];
+        let start = Instant::now();
+        let packed = RevPacked::new(bytes);
+        let elapsed = start.elapsed().as_secs_f64();
+        eprintln!("\t2 bit packing run time (s): {elapsed}");
 
-        let s = Instant::now();
+        let start = Instant::now();
+        let mut thread_counts = vec![CompactVec::<BYTES>::new(1 << k_bits); bucket_threads];
+
         rayon::scope(|scope| {
             for (thread_idx, counts) in thread_counts.iter_mut().enumerate() {
                 let packed = &packed;
                 scope.spawn(move |_| {
                     let start = thread_idx * chunk_size;
-                    let end = if thread_idx >= count_threads - 1 {
+                    let end = if thread_idx >= bucket_threads - 1 {
                         len_no_ctx
                     } else {
                         (thread_idx + 1) * chunk_size
@@ -61,17 +61,19 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
                 });
             }
         });
-        let e = s.elapsed().as_secs_f64();
-        eprintln!("Count run time (s): {e}");
+
+        let elapsed = start.elapsed().as_secs_f64();
+        eprintln!("\tParallel bucket count run time (s): {elapsed}");
 
         let mut sum = 0;
         let mut max_bucket = 0;
 
-        let s = Instant::now();
+        let start = Instant::now();
+
         for i in 0..(1 << k_bits) {
             let mut curr_bucket = 0;
 
-            for thread_idx in 0..count_threads {
+            for thread_idx in 0..bucket_threads {
                 let curr = thread_counts[thread_idx][i].get_usize();
                 thread_counts[thread_idx][i].set_usize(sum);
                 sum += curr;
@@ -80,19 +82,20 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
 
             max_bucket = max_bucket.max(curr_bucket);
         }
-        let e = s.elapsed().as_secs_f64();
-        eprintln!("Prefix sum run time (s): {e}");
 
+        let elapsed = start.elapsed().as_secs_f64();
+        eprintln!("\tBucket prefix sum run time (s): {elapsed}");
+
+        let start = Instant::now();
         let mut sorted = CompactVec::<BYTES>::new(len_no_ctx);
         let sorted_ptr = MutPtr(sorted.as_mut_ptr());
 
-        let s = Instant::now();
         rayon::scope(|scope| {
             for (thread_idx, counts) in thread_counts.iter_mut().enumerate() {
                 let packed = &packed;
                 scope.spawn(move |_| {
                     let start = thread_idx * chunk_size;
-                    let end = if thread_idx >= count_threads - 1 {
+                    let end = if thread_idx >= bucket_threads - 1 {
                         len_no_ctx
                     } else {
                         (thread_idx + 1) * chunk_size
@@ -109,10 +112,9 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
                 });
             }
         });
-        let e = s.elapsed().as_secs_f64();
-        eprintln!("Place into buckets run time (s): {e}");
 
-        let elapsed1 = start.elapsed().as_secs_f64();
+        let elapsed = start.elapsed().as_secs_f64();
+        eprintln!("\tParallel move into buckets run time (s): {elapsed}");
 
         let start = Instant::now();
         let counts = thread_counts.into_iter().last().unwrap();
@@ -132,10 +134,9 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
             });
         });
 
-        let elapsed2 = start.elapsed().as_secs_f64();
-        eprintln!("Bucket sort run time (s): {elapsed1}");
-        eprintln!("Parallel sort run time (s): {elapsed2}");
-        eprintln!("Largest bucket / total: {max_bucket} / {sum}");
+        let elapsed = start.elapsed().as_secs_f64();
+        eprintln!("\tParallel sort buckets run time (s): {elapsed}");
+        eprintln!("\tLargest bucket / total: {max_bucket} / {sum}");
 
         sorted
     }
