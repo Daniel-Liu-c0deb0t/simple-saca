@@ -30,7 +30,6 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
         bucket_threads: usize,
     ) -> CompactVec<BYTES> {
         let k_bits = k * 2;
-        let mask = (1u32 << k_bits) - 1;
         let len_no_ctx = bytes.len() - CTX;
         let chunk_size = len_no_ctx / bucket_threads;
 
@@ -54,7 +53,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
                     };
 
                     for i in start..end {
-                        let kmer = packed.load_24(i) & mask;
+                        let kmer = packed.load_k(i, k);
                         let count = (*counts.as_ptr().add(kmer as usize)).get_usize();
                         (*counts.as_mut_ptr().add(kmer as usize)).set_usize(count + 1);
                     }
@@ -103,7 +102,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
                     let ptr = sorted_ptr;
 
                     for i in start..end {
-                        let kmer = packed.load_24(i) & mask;
+                        let kmer = packed.load_k(i, k);
                         let idx = (*counts.as_ptr().add(kmer as usize)).get_usize();
 
                         (*ptr.0.add(idx)).set_usize(i);
@@ -226,7 +225,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
         sorted
     }
 
-    pub fn idxs(&self) -> &[Int<BYTES>] {
+    pub fn idxs(&self) -> &CompactVec<BYTES> {
         &self.idxs
     }
 
@@ -278,16 +277,16 @@ impl RevPacked {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn load_248(&self, idx: usize) -> __m256i {
+    unsafe fn load_124(&self, idx: usize) -> __m256i {
         let idx = self.len - idx - 128;
-        let i = idx / 4;
-        let j = idx % 4;
+        let i = (idx + 3) / 4;
+        let j = (idx + 3) % 4;
         let val = _mm256_loadu_si256(self.data.as_ptr().add(i) as _);
 
         // shift left by bits
-        let left_shift = _mm256_set1_epi64x((j * 2) as _);
+        let left_shift = _mm256_set1_epi64x(((3 - j) * 2) as _);
         let hi = _mm256_sllv_epi64(val, left_shift);
-        let right_shift = _mm256_set1_epi64x(((32 - j) * 2) as _);
+        let right_shift = _mm256_set1_epi64x(((32 - (3 - j)) * 2) as _);
         let lo = _mm256_srlv_epi64(_mm256_permute4x64_epi64(val, 0b10_01_00_11), right_shift);
 
         let mask = _mm256_set_epi8(
@@ -300,12 +299,12 @@ impl RevPacked {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn load_24(&self, idx: usize) -> u32 {
+    unsafe fn load_k(&self, idx: usize, k: usize) -> u32 {
         let idx = self.len - idx - 16;
-        let i = idx / 4;
-        let j = idx % 4;
+        let i = (idx + 3) / 4;
+        let j = (idx + 3) % 4;
         let val = std::ptr::read_unaligned(self.data.as_ptr().add(i) as *const u32);
-        (val >> ((4 - j) * 2)) & 0x00FFFFFFu32
+        (val << ((3 - j) * 2)) >> ((16 - k) * 2)
     }
 }
 
@@ -321,8 +320,8 @@ unsafe fn simd_cmp_packed<const CTX: usize>(
     let mut b_i = b_idx;
 
     for _ in 0..(CTX / L) {
-        let a = packed.load_248(a_i);
-        let b = packed.load_248(b_i);
+        let a = packed.load_124(a_i);
+        let b = packed.load_124(b_i);
 
         let eq = _mm256_cmpeq_epi8(a, b);
         let neq_mask = !(_mm256_movemask_epi8(eq) as u32);
@@ -363,7 +362,6 @@ unsafe fn simd_cmp_bytes<const CTX: usize>(bytes: &[u8], a_idx: usize, b_idx: us
         let neq_mask = !(_mm256_movemask_epi8(eq) as u32);
 
         if neq_mask != 0 {
-            // TODO: try branchless
             let lsb_mask = neq_mask & neq_mask.wrapping_neg();
             let gt = _mm256_max_epu8(a, b);
             let gt = _mm256_cmpeq_epi8(gt, a);
@@ -422,3 +420,47 @@ unsafe fn simd_cmp<const CTX: usize>(seeds: &[u16], a_idx: usize, b_idx: usize) 
 struct MutPtr<const BYTES: usize>(*mut Int<BYTES>);
 unsafe impl<const BYTES: usize> std::marker::Send for MutPtr<BYTES> {}
 unsafe impl<const BYTES: usize> std::marker::Sync for MutPtr<BYTES> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_packed() {
+        {
+            const CTX: usize = 124;
+            let mut b = b"ACGTACGT".to_vec();
+            b.resize(b.len() + CTX, b'A');
+            let s = SuffixArray::<5>::new_packed::<CTX>(&b, 1, 1);
+            let correct = [4, 0, 5, 1, 6, 2, 7, 3];
+            assert_eq!(s.idxs().to_usize_vec(), correct);
+        }
+
+        {
+            const CTX: usize = 124;
+            let mut b = b"ACGTACGT".to_vec();
+            b.resize(b.len() + CTX, b'A');
+            let s = SuffixArray::<5>::new_packed::<CTX>(&b, 2, 1);
+            let correct = [4, 0, 5, 1, 6, 2, 7, 3];
+            assert_eq!(s.idxs().to_usize_vec(), correct);
+        }
+
+        {
+            const CTX: usize = 124 * 2;
+            let mut b = b"ACGTACGT".to_vec();
+            b.resize(b.len() + CTX, b'A');
+            let s = SuffixArray::<5>::new_packed::<CTX>(&b, 2, 1);
+            let correct = [4, 0, 5, 1, 6, 2, 7, 3];
+            assert_eq!(s.idxs().to_usize_vec(), correct);
+        }
+
+        {
+            const CTX: usize = 124;
+            let mut b = b"TTTT".to_vec();
+            b.resize(b.len() + CTX, b'A');
+            let s = SuffixArray::<5>::new_packed::<CTX>(&b, 2, 1);
+            let correct = [3, 2, 1, 0];
+            assert_eq!(s.idxs().to_usize_vec(), correct);
+        }
+    }
+}

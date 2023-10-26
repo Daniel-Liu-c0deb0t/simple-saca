@@ -33,6 +33,10 @@ impl<const BYTES: usize> CompactVec<BYTES> {
             data: vec![Int([0u8; BYTES]); len],
         }
     }
+
+    pub fn to_usize_vec(&self) -> Vec<usize> {
+        self.data.iter().map(|i| i.get_usize()).collect()
+    }
 }
 
 impl<const BYTES: usize> std::ops::Deref for CompactVec<BYTES> {
