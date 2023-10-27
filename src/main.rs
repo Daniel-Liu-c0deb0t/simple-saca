@@ -34,10 +34,10 @@ fn main() {
         eprintln!("Suffix array length: {}", suffix_array.len());
     } else {
         let suffix_array = match args.ctx {
-            124 => SuffixArray::<5>::new_packed::<124>(&seq, args.k, args.bucket_threads),
-            248 => SuffixArray::<5>::new_packed::<248>(&seq, args.k, args.bucket_threads),
-            496 => SuffixArray::<5>::new_packed::<496>(&seq, args.k, args.bucket_threads),
-            992 => SuffixArray::<5>::new_packed::<992>(&seq, args.k, args.bucket_threads),
+            124 => SuffixArray::<5>::new_packed::<1>(&seq, args.k, args.bucket_threads),
+            248 => SuffixArray::<5>::new_packed::<2>(&seq, args.k, args.bucket_threads),
+            496 => SuffixArray::<5>::new_packed::<4>(&seq, args.k, args.bucket_threads),
+            992 => SuffixArray::<5>::new_packed::<8>(&seq, args.k, args.bucket_threads),
             _ => panic!("Context length of {} is not supported!", args.ctx),
         };
         eprintln!("Suffix array length: {}", suffix_array.idxs().len());
