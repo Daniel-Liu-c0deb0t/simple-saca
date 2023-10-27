@@ -16,6 +16,11 @@ pub struct SuffixArray<const BYTES: usize> {
     ctx: usize,
 }
 
+const L: usize = 128 - 4;
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Key<const CTX: usize>([[u64; 4]; CTX]);
+
 impl<const BYTES: usize> SuffixArray<BYTES> {
     pub fn new_packed<const CTX: usize>(bytes: &[u8], k: usize, bucket_threads: usize) -> Self {
         let idxs = unsafe { Self::sort_packed::<CTX>(bytes, k, bucket_threads) };
@@ -30,7 +35,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
         bucket_threads: usize,
     ) -> CompactVec<BYTES> {
         let k_bits = k * 2;
-        let len_no_ctx = bytes.len() - CTX;
+        let len_no_ctx = bytes.len() - L * CTX;
         let chunk_size = len_no_ctx / bucket_threads;
 
         let start = Instant::now();
@@ -128,9 +133,21 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
             let ptr = sorted_ptr;
             let slice = unsafe { std::slice::from_raw_parts_mut(ptr.0.add(start), end - start) };
 
-            slice.sort_by(|a_idx, b_idx| unsafe {
-                simd_cmp_packed::<CTX>(&packed, a_idx.get_usize(), b_idx.get_usize())
-            });
+            // For small context, it is more efficient to sort_by_cached_key,
+            // while for larger context these keys take up a lot of memory and
+            // lookups become more efficient.
+            if CTX <= 4 {
+                // This makes an extra allocation per thread, but
+                // since buckets are typically small compared to the entire suffix
+                // array that is OK.
+                slice.sort_by_cached_key(|a_idx| unsafe {
+                    simd_key_packed::<CTX>(&packed, a_idx.get_usize())
+                });
+            } else {
+                slice.sort_by(|a_idx, b_idx| unsafe {
+                    simd_cmp_packed::<CTX>(&packed, a_idx.get_usize(), b_idx.get_usize())
+                });
+            }
         });
 
         let elapsed = start.elapsed().as_secs_f64();
@@ -152,7 +169,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
 
     #[target_feature(enable = "avx2")]
     unsafe fn sort_bytes<const CTX: usize>(bytes: &[u8]) -> CompactVec<BYTES> {
-        let bytes_no_ctx = &bytes[..bytes.len() - CTX];
+        let bytes_no_ctx = &bytes[..bytes.len() - L * CTX];
 
         let mut sorted = CompactVec::<BYTES>::new(bytes_no_ctx.len());
 
@@ -177,7 +194,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
 
     #[target_feature(enable = "avx2")]
     unsafe fn sort<const CTX: usize>(seeds: &[u16], k: usize) -> CompactVec<BYTES> {
-        let seeds_no_ctx = &seeds[..seeds.len() - CTX];
+        let seeds_no_ctx = &seeds[..seeds.len() - L * CTX];
 
         let mut counts = CompactVec::<BYTES>::new(1 << k);
 
@@ -310,6 +327,18 @@ impl RevPacked {
 
 #[inline]
 #[target_feature(enable = "avx2")]
+unsafe fn simd_key_packed<const CTX: usize>(packed: &RevPacked, a_idx: usize) -> Key<CTX> {
+    let mut a_i = a_idx;
+
+    Key([(); CTX].map(|_| {
+        let t = packed.load_124(a_i);
+        a_i += L;
+        *(&t as *const _ as *const [u64; 4])
+    }))
+}
+
+#[inline]
+#[target_feature(enable = "avx2")]
 unsafe fn simd_cmp_packed<const CTX: usize>(
     packed: &RevPacked,
     a_idx: usize,
@@ -319,7 +348,7 @@ unsafe fn simd_cmp_packed<const CTX: usize>(
     let mut a_i = a_idx;
     let mut b_i = b_idx;
 
-    for _ in 0..(CTX / L) {
+    for _ in 0..CTX {
         let a = packed.load_124(a_i);
         let b = packed.load_124(b_i);
 
@@ -354,7 +383,7 @@ unsafe fn simd_cmp_bytes<const CTX: usize>(bytes: &[u8], a_idx: usize, b_idx: us
     let mut a_i = a_idx;
     let mut b_i = b_idx;
 
-    for _ in 0..(CTX / L) {
+    for _ in 0..CTX {
         let a = _mm256_loadu_si256(ptr.add(a_i) as _);
         let b = _mm256_loadu_si256(ptr.add(b_i) as _);
 
@@ -389,7 +418,7 @@ unsafe fn simd_cmp<const CTX: usize>(seeds: &[u16], a_idx: usize, b_idx: usize) 
     let mut a_i = a_idx;
     let mut b_i = b_idx;
 
-    for _ in 0..(CTX / L) {
+    for _ in 0..CTX {
         let a = _mm256_loadu_si256(ptr.add(a_i) as _);
         let b = _mm256_loadu_si256(ptr.add(b_i) as _);
 
@@ -428,36 +457,36 @@ mod tests {
     #[test]
     fn test_packed() {
         {
-            const CTX: usize = 124;
+            const CTX: usize = 1;
             let mut b = b"ACGTACGT".to_vec();
-            b.resize(b.len() + CTX, b'A');
+            b.resize(b.len() + L * CTX, b'A');
             let s = SuffixArray::<5>::new_packed::<CTX>(&b, 1, 1);
             let correct = [4, 0, 5, 1, 6, 2, 7, 3];
             assert_eq!(s.idxs().to_usize_vec(), correct);
         }
 
         {
-            const CTX: usize = 124;
+            const CTX: usize = 1;
             let mut b = b"ACGTACGT".to_vec();
-            b.resize(b.len() + CTX, b'A');
+            b.resize(b.len() + L * CTX, b'A');
             let s = SuffixArray::<5>::new_packed::<CTX>(&b, 2, 1);
             let correct = [4, 0, 5, 1, 6, 2, 7, 3];
             assert_eq!(s.idxs().to_usize_vec(), correct);
         }
 
         {
-            const CTX: usize = 124 * 2;
+            const CTX: usize = 2;
             let mut b = b"ACGTACGT".to_vec();
-            b.resize(b.len() + CTX, b'A');
+            b.resize(b.len() + L * CTX, b'A');
             let s = SuffixArray::<5>::new_packed::<CTX>(&b, 2, 1);
             let correct = [4, 0, 5, 1, 6, 2, 7, 3];
             assert_eq!(s.idxs().to_usize_vec(), correct);
         }
 
         {
-            const CTX: usize = 124;
+            const CTX: usize = 1;
             let mut b = b"TTTT".to_vec();
-            b.resize(b.len() + CTX, b'A');
+            b.resize(b.len() + L * CTX, b'A');
             let s = SuffixArray::<5>::new_packed::<CTX>(&b, 2, 1);
             let correct = [3, 2, 1, 0];
             assert_eq!(s.idxs().to_usize_vec(), correct);
