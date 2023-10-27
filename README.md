@@ -2,18 +2,25 @@
 Hardware go brrr bounded context suffix array construction algorithm.
 
 ## Benchmark
-Results for T2T-CHM13+Y (complete human genome sequence, 3.1 billion base pairs) on AWS c7i.8xlarge (32 cores, 64GB memory):
+Results for T2T-CHM13+Y (complete human genome sequence, 3.1 billion base pairs) on AWS c7i.8xlarge (32 vCPUs, 64GB memory):
 * **32 threads, 248bp context: 61s, 18.7GB**
 * 16 threads, 248bp context: 83s, 18.6GB
 * 8 threads, 248bp context: 159s, 18.6GB
 * **32 threads, 992bp context: 64s, 18.7GB**
 * libdivsufsort (64-bit): 418s, 26.7GB
 
-Note that 10-mer buckets are used, and the largest bucket has around 3 million suffixes.
+The peak memory usage is barely larger than the space needed to simply store the genome and the suffix array.
+
+Note that 10-mer buckets are used, and the largest bucket has around 3 million suffixes. This is the largest bucket
+that that will be sorted with comparison-based sorting.
 
 ## Why?
 I was curious how fast bounded context suffix array sorting can be optimized by using a naive sorting approach,
 but making full use of CPU parallelism.
+
+Since this algorithm uses bucketing and comparison-based sorting, it should be easily adaptable to non-standard
+suffix array use cases (eg., spaced seeds) by using different functions for extracting a "kmer" for bucketing and
+comparing two suffixes.
 
 ## Algorithm overview
 Note that this algorithm does not output fully sorted suffixes.
