@@ -18,6 +18,9 @@ pub struct SuffixArray<const BYTES: usize> {
 
 const L: usize = 128 - 4;
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Key<const CTX: usize>([[u64; 4]; CTX]);
+
 impl<const BYTES: usize> SuffixArray<BYTES> {
     pub fn new_packed<const CTX: usize>(bytes: &[u8], k: usize, bucket_threads: usize) -> Self {
         let idxs = unsafe { Self::sort_packed::<CTX>(bytes, k, bucket_threads) };
@@ -130,9 +133,21 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
             let ptr = sorted_ptr;
             let slice = unsafe { std::slice::from_raw_parts_mut(ptr.0.add(start), end - start) };
 
-            slice.sort_by(|a_idx, b_idx| unsafe {
-                simd_cmp_packed::<CTX>(&packed, a_idx.get_usize(), b_idx.get_usize())
-            });
+            // For small context, it is more efficient to sort_by_cached_key,
+            // while for larger context these keys take up a lot of memory and
+            // lookups become more efficient.
+            if CTX <= 4 {
+                // This makes an extra allocation per thread, but
+                // since buckets are typically small compared to the entire suffix
+                // array that is OK.
+                slice.sort_by_cached_key(|a_idx| unsafe {
+                    simd_key_packed::<CTX>(&packed, a_idx.get_usize())
+                });
+            } else {
+                slice.sort_by(|a_idx, b_idx| unsafe {
+                    simd_cmp_packed::<CTX>(&packed, a_idx.get_usize(), b_idx.get_usize())
+                });
+            }
         });
 
         let elapsed = start.elapsed().as_secs_f64();
@@ -308,6 +323,18 @@ impl RevPacked {
         let val = std::ptr::read_unaligned(self.data.as_ptr().add(i) as *const u32);
         (val << ((3 - j) * 2)) >> ((16 - k) * 2)
     }
+}
+
+#[inline]
+#[target_feature(enable = "avx2")]
+unsafe fn simd_key_packed<const CTX: usize>(packed: &RevPacked, a_idx: usize) -> Key<CTX> {
+    let mut a_i = a_idx;
+
+    Key([(); CTX].map(|_| {
+        let t = packed.load_124(a_i);
+        a_i += L;
+        *(&t as *const _ as *const [u64; 4])
+    }))
 }
 
 #[inline]
