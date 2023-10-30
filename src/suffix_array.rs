@@ -128,7 +128,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
             let ptr = sorted_ptr;
             let slice = unsafe { std::slice::from_raw_parts_mut(ptr.0.add(start), end - start) };
 
-            slice.sort_by(|a_idx, b_idx| unsafe {
+            slice.sort_unstable_by(|a_idx, b_idx| unsafe {
                 simd_cmp_packed::<CTX>(&packed, a_idx.get_usize(), b_idx.get_usize())
             });
         });
