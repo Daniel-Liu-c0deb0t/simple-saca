@@ -18,7 +18,7 @@ pub struct SuffixArray<const BYTES: usize> {
 
 const L: usize = 128 - 4;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 struct Key<const CTX: usize>([[u64; 4]; CTX]);
 
 impl<const BYTES: usize> SuffixArray<BYTES> {
@@ -137,12 +137,34 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
             // while for larger context these keys take up a lot of memory and
             // lookups become more efficient.
             if CTX <= 4 {
-                // This makes an extra allocation per thread, but
-                // since buckets are typically small compared to the entire suffix
-                // array that is OK.
-                slice.sort_by_cached_key(|a_idx| unsafe {
-                    simd_key_packed::<CTX>(&packed, a_idx.get_usize())
-                });
+                // Inlined sort_by_cached_key. This is slightly more efficient
+                // than calling sort_by_cached_key directly, because:
+                // 1. Instead of sorting (key, idx_in_slice) pairs, we directly
+                //    sort (key, idx_in_string) pairs, removing an indirection
+                //    to resolve slice indices back to string indices.
+                // 2. It only compares by key, not by index, since we don't need
+                //    a stable sort.
+                //
+                // This makes an extra allocation per thread, but since buckets
+                // are typically small compared to the entire suffix array that
+                // is OK.
+
+                // let mut keyed_slice = keyed_slice_cache.get_or_default().borrow_mut();
+                // keyed_slice.clear();
+                let mut keyed_slice: Vec<_> = slice
+                    .iter()
+                    .map(|a_idx| {
+                        (
+                            simd_key_packed::<CTX>(&packed, a_idx.get_usize()),
+                            a_idx.clone(),
+                        )
+                    })
+                    .collect();
+
+                keyed_slice.sort_unstable_by_key(|(k, _i)| k.clone());
+                for i in 0..slice.len() {
+                    slice[i] = keyed_slice[i].1.clone();
+                }
             } else {
                 slice.sort_by(|a_idx, b_idx| unsafe {
                     simd_cmp_packed::<CTX>(&packed, a_idx.get_usize(), b_idx.get_usize())
