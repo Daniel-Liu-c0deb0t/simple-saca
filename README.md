@@ -39,11 +39,15 @@ Suffix indexes and kmer counts are stored using 40-bit integers to save space.
 
 ## Run
 1. Clone this repo and install Rust.
-2. Make sure you are running an x86 CPU supporting AVX2.
+2. Make sure you are running this on x86 CPUs supporting AVX2.
 3. `cargo run --release -- genome.fasta.gz`
 
-Note: this currently does not output the constructed suffix array, it only benchmarks
-the construction algorithm.
+Use the `third_party` feature flag to benchmark other suffix array construction libraries:
+```
+cargo run --release --features third_party -- genome.fasta.gz
+```
+
+The binary only benchmarks the suffix array construction algorithm, but you can use this crate as a library.
 
 Use `--help` to see all options. You can adjust the number of threads
 and bounded context length.

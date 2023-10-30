@@ -28,19 +28,48 @@ fn main() {
 
     let start_saca = Instant::now();
 
-    if args.divsufsort {
-        use libdivsufsort_rs::divsufsort64;
-        let suffix_array = divsufsort64(&seq).unwrap();
-        eprintln!("Suffix array length: {}", suffix_array.len());
-    } else {
-        let suffix_array = match args.ctx {
-            125 => SuffixArray::<5>::new_packed::<125>(&seq, args.k, args.bucket_threads),
-            250 => SuffixArray::<5>::new_packed::<250>(&seq, args.k, args.bucket_threads),
-            500 => SuffixArray::<5>::new_packed::<500>(&seq, args.k, args.bucket_threads),
-            1000 => SuffixArray::<5>::new_packed::<1000>(&seq, args.k, args.bucket_threads),
-            _ => panic!("Context length of {} is not supported!", args.ctx),
-        };
-        eprintln!("Suffix array length: {}", suffix_array.idxs().len());
+    #[cfg(not(feature = "third_party"))]
+    {
+        assert_eq!(args.algo, Algorithm::Simple);
+    }
+
+    match args.algo {
+        Algorithm::Simple => {
+            let suffix_array = match args.ctx {
+                125 => SuffixArray::<5>::new_packed::<125>(&seq, args.k, args.bucket_threads),
+                250 => SuffixArray::<5>::new_packed::<250>(&seq, args.k, args.bucket_threads),
+                500 => SuffixArray::<5>::new_packed::<500>(&seq, args.k, args.bucket_threads),
+                1000 => SuffixArray::<5>::new_packed::<1000>(&seq, args.k, args.bucket_threads),
+                _ => panic!("Context length of {} is not supported!", args.ctx),
+            };
+            eprintln!("Suffix array length: {}", suffix_array.idxs().len());
+        }
+        Algorithm::DivSufSort => {
+            #[cfg(feature = "third_party")]
+            {
+                use libdivsufsort_rs::divsufsort64;
+                let suffix_array = divsufsort64(&seq).unwrap();
+                eprintln!("Suffix array length: {}", suffix_array.len());
+            }
+        }
+        Algorithm::Sais => {
+            #[cfg(feature = "third_party")]
+            {
+                use sais_sys::sais64::libsais64_omp;
+                let mut suffix_array = vec![0i64; seq.len()];
+                unsafe {
+                    libsais64_omp(
+                        seq.as_ptr(),
+                        suffix_array.as_mut_ptr(),
+                        seq.len() as i64,
+                        0,
+                        std::ptr::null_mut(),
+                        args.threads as i64,
+                    );
+                }
+                eprintln!("Suffix array length: {}", suffix_array.len());
+            }
+        }
     }
 
     let elapsed_saca = start_saca.elapsed().as_secs_f64();
@@ -97,7 +126,17 @@ struct Args {
     /// Supported multiples of 125: 125, 250, 500, 1000
     #[arg(short, long, default_value_t = 250)]
     ctx: usize,
-    /// Run 64-bit libdivsufsort instead.
-    #[arg(long)]
-    divsufsort: bool,
+    /// Which algorithm to run.
+    #[arg(short, long, value_enum, default_value_t = Algorithm::Simple)]
+    algo: Algorithm,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, clap::ValueEnum)]
+enum Algorithm {
+    /// The algorithm implemented in this crate, multithreaded.
+    Simple,
+    /// 64-bit libdivsufsort, single threaded.
+    DivSufSort,
+    /// 64-bit libsais, multithreaded.
+    Sais,
 }

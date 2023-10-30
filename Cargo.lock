@@ -298,6 +298,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmp-sys"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3a0ed77d2794d2b9a59123e60e874190626c22b7124ce38959fe59386e317fa"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "pkg-config"
 version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -348,6 +357,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ef703b7cb59335eae2eb93ceb664c0eb7ea6bf567079d843e09420219668e072"
 
 [[package]]
+name = "sais-sys"
+version = "0.1.0+libsais-2.7.3"
+source = "git+https://github.com/Daniel-Liu-c0deb0t/libsais-rs#80c784ce5cb6a7f1b00c51778253d34069e480dc"
+dependencies = [
+ "cc",
+ "libc",
+ "openmp-sys",
+ "target-tuples",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -362,6 +382,7 @@ dependencies = [
  "libdivsufsort-rs",
  "needletail",
  "rayon",
+ "sais-sys",
 ]
 
 [[package]]
@@ -380,6 +401,12 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "target-tuples"
+version = "0.5.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79f244e96093a636944c070a216397df56fc85b1d4b8bb1810668d392462d588"
 
 [[package]]
 name = "unicode-ident"
