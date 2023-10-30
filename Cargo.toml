@@ -12,4 +12,4 @@ needletail = "0.5.1"
 rayon = "1.7.0"
 libc = "0.2.147"
 libdivsufsort-rs = { version = "0.1.2", optional = true }
-sais-sys = { git = "https://github.com/Daniel-Liu-c0deb0t/libsais-rs", default-features = false, features = ["openmp", "sais64"], optional = true }
+sais-sys = { git = "https://github.com/Daniel-Liu-c0deb0t/libsais-rs", features = ["sais64"], optional = true }
