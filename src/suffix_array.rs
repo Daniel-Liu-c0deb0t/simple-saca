@@ -277,7 +277,7 @@ impl RevPacked {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn load_124(&self, idx: usize) -> __m256i {
+    unsafe fn load_125(&self, idx: usize) -> __m256i {
         let idx = self.len - idx - 128;
         let i = (idx + 3) / 4;
         let j = (idx + 3) % 4;
@@ -290,8 +290,38 @@ impl RevPacked {
         let lo = _mm256_srlv_epi64(_mm256_permute4x64_epi64(val, 0b10_01_00_11), right_shift);
 
         let mask = _mm256_set_epi8(
-            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-            -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            0b1100_0000u8 as i8,
         );
 
         _mm256_and_si256(_mm256_or_si256(hi, lo), mask)
@@ -315,13 +345,13 @@ unsafe fn simd_cmp_packed<const CTX: usize>(
     a_idx: usize,
     b_idx: usize,
 ) -> Ordering {
-    const L: usize = 128 - 4;
+    const L: usize = 125;
     let mut a_i = a_idx;
     let mut b_i = b_idx;
 
     for _ in 0..(CTX / L) {
-        let a = packed.load_124(a_i);
-        let b = packed.load_124(b_i);
+        let a = packed.load_125(a_i);
+        let b = packed.load_125(b_i);
 
         let eq = _mm256_cmpeq_epi8(a, b);
         let neq_mask = !(_mm256_movemask_epi8(eq) as u32);
@@ -343,7 +373,7 @@ unsafe fn simd_cmp_packed<const CTX: usize>(
         b_i += L;
     }
 
-    a_i.cmp(&b_i)
+    a_idx.cmp(&b_idx)
 }
 
 #[inline]
@@ -428,7 +458,7 @@ mod tests {
     #[test]
     fn test_packed() {
         {
-            const CTX: usize = 124;
+            const CTX: usize = 125;
             let mut b = b"ACGTACGT".to_vec();
             b.resize(b.len() + CTX, b'A');
             let s = SuffixArray::<5>::new_packed::<CTX>(&b, 1, 1);
@@ -437,7 +467,7 @@ mod tests {
         }
 
         {
-            const CTX: usize = 124;
+            const CTX: usize = 125;
             let mut b = b"ACGTACGT".to_vec();
             b.resize(b.len() + CTX, b'A');
             let s = SuffixArray::<5>::new_packed::<CTX>(&b, 2, 1);
@@ -446,7 +476,7 @@ mod tests {
         }
 
         {
-            const CTX: usize = 124 * 2;
+            const CTX: usize = 125 * 2;
             let mut b = b"ACGTACGT".to_vec();
             b.resize(b.len() + CTX, b'A');
             let s = SuffixArray::<5>::new_packed::<CTX>(&b, 2, 1);
@@ -455,7 +485,7 @@ mod tests {
         }
 
         {
-            const CTX: usize = 124;
+            const CTX: usize = 125;
             let mut b = b"TTTT".to_vec();
             b.resize(b.len() + CTX, b'A');
             let s = SuffixArray::<5>::new_packed::<CTX>(&b, 2, 1);
