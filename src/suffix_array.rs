@@ -1,5 +1,7 @@
 use rayon::prelude::*;
+use thread_local::ThreadLocal;
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::time::Instant;
 
@@ -123,6 +125,9 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
         let start = Instant::now();
         let counts = thread_counts.into_iter().last().unwrap();
 
+        // Prevent repeated allocations by using a thread-local vector.
+        let keyed_slice_cache: ThreadLocal<RefCell<Vec<_>>> = ThreadLocal::new();
+
         (0..(1 << k_bits)).into_par_iter().for_each(|i| {
             let start = if i == 0 {
                 0
@@ -149,17 +154,14 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
                 // are typically small compared to the entire suffix array that
                 // is OK.
 
-                // let mut keyed_slice = keyed_slice_cache.get_or_default().borrow_mut();
-                // keyed_slice.clear();
-                let mut keyed_slice: Vec<_> = slice
-                    .iter()
-                    .map(|a_idx| {
-                        (
-                            simd_key_packed::<CTX>(&packed, a_idx.get_usize()),
-                            a_idx.clone(),
-                        )
-                    })
-                    .collect();
+                let mut keyed_slice = keyed_slice_cache.get_or_default().borrow_mut();
+                keyed_slice.clear();
+                keyed_slice.extend(slice.iter().map(|a_idx| {
+                    (
+                        simd_key_packed::<CTX>(&packed, a_idx.get_usize()),
+                        a_idx.clone(),
+                    )
+                }));
 
                 keyed_slice.sort_unstable_by_key(|(k, _i)| k.clone());
                 for i in 0..slice.len() {
