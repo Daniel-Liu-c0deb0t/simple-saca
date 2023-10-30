@@ -20,8 +20,8 @@ pub struct SuffixArray<const BYTES: usize> {
 
 const L: usize = 128 - 4;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
-struct Key<const CTX: usize>([[u64; 4]; CTX]);
+#[derive(Clone)]
+struct Key<const CTX: usize>([__m256i; CTX]);
 
 impl<const BYTES: usize> SuffixArray<BYTES> {
     pub fn new_packed<const CTX: usize>(bytes: &[u8], k: usize, bucket_threads: usize) -> Self {
@@ -156,6 +156,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
 
                 let mut keyed_slice = keyed_slice_cache.get_or_default().borrow_mut();
                 keyed_slice.clear();
+                keyed_slice.reserve(slice.len());
                 keyed_slice.extend(slice.iter().map(|a_idx| {
                     (
                         simd_key_packed::<CTX>(&packed, a_idx.get_usize()),
@@ -163,7 +164,7 @@ impl<const BYTES: usize> SuffixArray<BYTES> {
                     )
                 }));
 
-                keyed_slice.sort_unstable_by_key(|(k, _i)| k.clone());
+                keyed_slice.sort_unstable_by(|(kl, _il), (kr, _ir)| key_cmp_packed(kl, kr));
                 for i in 0..slice.len() {
                     slice[i] = keyed_slice[i].1.clone();
                 }
@@ -357,8 +358,41 @@ unsafe fn simd_key_packed<const CTX: usize>(packed: &RevPacked, a_idx: usize) ->
     Key([(); CTX].map(|_| {
         let t = packed.load_124(a_i);
         a_i += L;
-        *(&t as *const _ as *const [u64; 4])
+        t
     }))
+}
+
+#[inline]
+unsafe fn cmp_pack(a: __m256i, b: __m256i) -> Ordering {
+    let eq = _mm256_cmpeq_epi8(a, b);
+    let neq_mask = !(_mm256_movemask_epi8(eq) as u32);
+
+    if neq_mask != 0 {
+        let msb_mask = 1u32 << (31 - neq_mask.leading_zeros());
+        let gt = _mm256_max_epu8(a, b);
+        let gt = _mm256_cmpeq_epi8(gt, a);
+        let gt_mask = _mm256_movemask_epi8(gt) as u32;
+
+        if (msb_mask & gt_mask) > 0 {
+            return Ordering::Greater;
+        } else {
+            return Ordering::Less;
+        }
+    }
+    Ordering::Equal
+}
+
+#[inline]
+fn key_cmp_packed<const CTX: usize>(l: &Key<CTX>, r: &Key<CTX>) -> Ordering {
+    unsafe {
+        for (&a, &b) in l.0.iter().zip(r.0.iter()) {
+            let c = cmp_pack(a, b);
+            if c != Ordering::Equal {
+                return c;
+            }
+        }
+        Ordering::Equal
+    }
 }
 
 #[inline]
@@ -376,20 +410,9 @@ unsafe fn simd_cmp_packed<const CTX: usize>(
         let a = packed.load_124(a_i);
         let b = packed.load_124(b_i);
 
-        let eq = _mm256_cmpeq_epi8(a, b);
-        let neq_mask = !(_mm256_movemask_epi8(eq) as u32);
-
-        if neq_mask != 0 {
-            let msb_mask = 1u32 << (31 - neq_mask.leading_zeros());
-            let gt = _mm256_max_epu8(a, b);
-            let gt = _mm256_cmpeq_epi8(gt, a);
-            let gt_mask = _mm256_movemask_epi8(gt) as u32;
-
-            if (msb_mask & gt_mask) > 0 {
-                return Ordering::Greater;
-            } else {
-                return Ordering::Less;
-            }
+        let c = cmp_pack(a, b);
+        if c != Ordering::Equal {
+            return c;
         }
 
         a_i += L;
