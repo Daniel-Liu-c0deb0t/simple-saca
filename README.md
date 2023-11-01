@@ -3,13 +3,20 @@ Hardware go brrr bounded context suffix array construction algorithm.
 
 ## Benchmark
 Results for T2T-CHM13+Y (complete human genome sequence, 3.1 billion base pairs) on AWS c7i.8xlarge (32 vCPUs, 64GB memory):
-* **32 threads, 248bp context: 61s, 18.7GB**
-* 16 threads, 248bp context: 83s, 18.6GB
-* 8 threads, 248bp context: 159s, 18.6GB
-* **32 threads, 992bp context: 64s, 18.7GB**
-* libdivsufsort (64-bit): 418s, 26.7GB
+* 4 threads, 250bp context: 143s, 18.6GB
+* 8 threads, 250bp context: 76s, 18.6GB
+* 16 threads, 250bp context: 43s, 18.6GB
+* **32 threads, 250bp context: 43s, 18.7GB**
+* **32 threads, 1000bp context: 44s, 18.7GB**
 
-The peak memory usage is barely larger than the space needed to simply store the genome and the suffix array.
+Third-party libraries for full suffix array construction:
+* libdivsufsort (64-bit, 1 thread): 418s, 26.7GB
+* libsais (64-bit, 16 threads): 55s, 26.7GB
+* libsais (64-bit, 32 threads): 58s, 26.7GB
+
+The performance does not improve past 16 threads probably because there are only 16 physical cores with 32 vCPUs.
+
+The peak memory usage of `simple-saca` is barely larger than the space needed to simply store the genome and the suffix array.
 
 Note that 10-mer buckets are used, and the largest bucket has around 3 million suffixes. This is the largest bucket
 that that will be sorted with comparison-based sorting.
@@ -42,9 +49,9 @@ Suffix indexes and kmer counts are stored using 40-bit integers to save space.
 2. Make sure you are running this on x86 CPUs supporting AVX2.
 3. `cargo run --release -- genome.fasta.gz`
 
-Use the `third_party` feature flag to benchmark other suffix array construction libraries:
+Use the `third_party` feature flag to enable benchmarking other suffix array construction libraries:
 ```
-cargo run --release --features third_party -- genome.fasta.gz
+cargo run --release --features third_party -- genome.fasta.gz --algo sais
 ```
 
 The binary only benchmarks the suffix array construction algorithm, but you can use this crate as a library.
